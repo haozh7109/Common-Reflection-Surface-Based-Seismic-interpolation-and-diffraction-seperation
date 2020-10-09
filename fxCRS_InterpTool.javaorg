@@ -1,0 +1,131 @@
+package com.lundin.prowess.tool.fxCRS_Interp;
+
+
+import org.javaseis.properties.DataDomain;
+
+import java.util.logging.Logger;
+import java.util.Arrays;
+
+import com.lgc.gpr.util.ParameterSet;
+import java.lang.Math;
+import edu.mines.jtk.dsp.*;
+import edu.mines.jtk.util.*;
+import com.lundin.tools.ParamsMethods.*;
+import com.lgc.prodesk.geometry.Geometry;
+import com.lgc.gpr.util.Format;
+import com.lgc.gpr.util.ParameterSet;
+import com.lgc.prodesk.hdr.CatalogedHdrEntry;
+import com.lgc.prodesk.hdr.HdrCatalog;
+import com.lgc.prodesk.hdr.HdrEntry;
+import com.lgc.prodesk.seisdata.DataContext;
+import com.lgc.prowess.exec.JobContext;
+import com.lgc.prowess.hdr.Hdr;
+import com.lgc.prowess.seisdata.SeisData;
+import com.lgc.prowess.tool.InitPhaseException;
+import com.lgc.prowess.tool.ToolContext;
+import com.lgc.prowess.tool.SimpleTool;
+import java.io.IOException;
+import com.lgc.prowess.tool.ExecPhaseException;
+import com.lgc.gpr.util.ParameterNotFoundException;
+import com.lgc.prowess.seisdata.SeisUtil;
+import org.javaseis.grid.BinGrid;
+import org.javaseis.grid.IGridAccessor;
+import org.javaseis.util.SeisException;
+import com.lgc.prodesk.hdr.DimensionHdr;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import com.lgc.prowess.seisdata.SeismicDataset;
+import com.lgc.prowess.tool.DatasetParms;
+import com.lgc.prowess.seisdata.SeisUtil;
+import com.lgc.prowess.seisdata.DataContextModifier;
+import com.lgc.prowess.seisdata.DataContextImpl;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import org.javaseis.properties.AxisLabel;
+
+
+
+public class fxCRS_InterpTool extends SimpleTool {
+
+
+  // Use a log instead of stdout and stderr
+  private static final Logger LOG = 
+    Logger.getLogger("com.lundin.prowess.tool.sagc");
+  private CatalogedHdrEntry xlex;
+  private CatalogedHdrEntry ilex;
+  private float _minu;
+  private float _maxu;
+  private float _maxstr;
+  private float _maxspatstr;
+  private float _maxtrace;
+  private int _mode;
+  private int _ref;
+  private SeismicDataset dataset;
+  @Override
+  public DataContext init(JobContext jobContext, ToolContext toolContext,
+      DataContext dataContext) throws InitPhaseException {
+
+  	// Get the user parameters for this tool
+  	ParameterSet menuParms = toolContext.getMenuParms();
+
+    _mode = menuParms.getInt(fxCRS_InterpProc.MODE_PARM, 1);
+    _ref = menuParms.getInt(fxCRS_InterpProc.STK_PARM, 1);
+    _maxu = menuParms.getFloat(fxCRS_InterpProc.MAXU_PARM,50.0f);
+    _minu = menuParms.getFloat(fxCRS_InterpProc.MINU_PARM,-50.0f);
+    _maxstr = menuParms.getFloat(fxCRS_InterpProc.MAXSTR_PARM,0.2f);
+    _maxspatstr = menuParms.getFloat(fxCRS_InterpProc.MAXSPATSTR_PARM,0.1f);
+    _maxtrace = menuParms.getInt(fxCRS_InterpProc.MAXTRACE_PARM,5);
+ 
+
+    HdrCatalog hdrCatalog = dataContext.getHdrCatalog();
+   if (!hdrCatalog.entryExists("smhxline")) {
+      	throw new InitPhaseException("The input data is not supergathers!");
+    }
+
+
+ // convenience class for accessing header entries
+    xlex = hdrCatalog.getEntry("smhxline");
+    ilex = hdrCatalog.getEntry("smhiline");
+
+if (_mode == 3) {
+//get filepath:
+			String  _gthFilename = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.GTH_DATASET,
+					jobContext.getAreaLinePath())[0];
+			LOG.info(_gthFilename);
+			//open dataset:			
+			try{
+				dataset = SeisUtil.openDataset(_gthFilename);
+				int dim = dataset.getDataContext().getSmartFramework().getDataDimensions();
+				if(dim != 4) throw new InitPhaseException("Secondary dataset expected 4 dimensions, received: " + dim + " dimensions");
+				else if(dataset == null) throw new InitPhaseException("Secondary dataset not set!");
+			}catch (IOException e){ e.printStackTrace();}
+
+   }
+   return dataContext;
+  } // context
+
+
+  @Override
+  public SeisData exec(SeisData data) {
+
+    // The SeisData object contains information about its state,
+    // such as the number of traces and the number of samples in
+    // a trace.
+	int ntr = data.countTraces();
+        int ntimes = data.getTraceLen();
+        int[] hdr = data.getHdr(0);
+        /// Insert code here
+        return data;       
+  }
+
+
+  // Any action which must be taken for cleanup of resources should be
+  // put in this method.
+  @Override
+  public void completeNormally() {
+  }
+  // Any action which must be taken if the tool is told to abort
+  // execution should be put in this method.
+  @Override
+  public void abort() {
+  }
+
+} // tool

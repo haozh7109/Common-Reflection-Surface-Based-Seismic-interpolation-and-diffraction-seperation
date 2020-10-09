@@ -1,0 +1,179 @@
+package com.lundin.prowess.tool.fxCRS_Interp;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import com.lgc.prodesk.flowbuilder.pui.pw.PWParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.PWProc;
+import com.lgc.prodesk.seisdata.DataContext;
+import com.lgc.prodesk.tbl.TableType;
+import com.lgc.prowess.tool.TableParms;
+import com.lgc.prodesk.flowbuilder.pui.pw.IntParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.FloatParm;
+import com.lgc.prodesk.flowbuilder.pui.TypeDesc;
+import com.lgc.prodesk.flowbuilder.pui.pw.PopChooseParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.ChooseParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.LabelParm;
+import com.lgc.prowess.tool.DatasetParms;
+import com.lgc.prodesk.flowbuilder.pui.Proc;
+import com.lgc.prodesk.flowbuilder.pui.pw.StringParm;
+
+/**
+ * Example5Nmo Process menu
+ */
+public class fxCRS_InterpProc extends PWProc {
+
+
+	//Parameter: dataset
+	
+	private PWParm _veldata_title 	      = new LabelParm("Reference velocity", false, LabelParm.BELOW);
+	static final String VEL_DATASET       = "VELOCITY_DATASET";
+	private DatasetParms _veldataParms    = new DatasetParms(this, VEL_DATASET);
+	
+	private PWParm _crsA1_title 	      = new LabelParm("CRS parameter A1", false, LabelParm.BELOW);
+	static final String CRS_PARAMETER_A1  = "CRS_PARAMETER_A1";
+	private DatasetParms _crsA1Parms      = new DatasetParms(this, CRS_PARAMETER_A1);
+	
+	private PWParm _crsA2_title 	      = new LabelParm("CRS parameter A2", false, LabelParm.BELOW);
+	static final String CRS_PARAMETER_A2  = "CRS_PARAMETER_A2";
+	private DatasetParms _crsA2Parms      = new DatasetParms(this, CRS_PARAMETER_A2);
+	
+	private PWParm _crsB11_title 	      = new LabelParm("CRS parameter B11", false, LabelParm.BELOW);
+	static final String CRS_PARAMETER_B11 = "CRS_PARAMETER_B11";
+	private DatasetParms _crsB11Parms     = new DatasetParms(this, CRS_PARAMETER_B11);
+	
+	private PWParm _crsB12_title 	      = new LabelParm("CRS parameter B12", false, LabelParm.BELOW);
+	static final String CRS_PARAMETER_B12 = "CRS_PARAMETER_B12";
+	private DatasetParms _crsB12Parms     = new DatasetParms(this, CRS_PARAMETER_B12);
+	
+	private PWParm _crsB22_title 	      = new LabelParm("CRS parameter B22", false, LabelParm.BELOW);
+	static final String CRS_PARAMETER_B22 = "CRS_PARAMETER_B22";
+	private DatasetParms _crsB22Parms     = new DatasetParms(this, CRS_PARAMETER_B22);	
+	
+	
+	
+	// Geometry parameter:
+	private PWParm _offset_min 	 = new FloatParm(this, "OFFSET_MIN_PARM","min offset","",-3475.0f);
+	private PWParm _offset_spacer_1	 = new LabelParm();
+	private PWParm _offset_step	 = new FloatParm(this, "OFFSET_STEP_PARM","offset step","",50.0f);
+	private PWParm _offset_spacer_2  = new LabelParm();
+	private PWParm _offset_max	 = new FloatParm(this, "OFFSET_MAX_PARM","max offset","",3475.0f);
+	/* end */
+
+	
+	//set the output model pop-up window parameters 
+	private static Object[][] _modeChoiceArray =
+		{
+		{"CMP gathers ( regularization of existing traces + interpolation of missing traces )",1},
+		{"CMP gathers ( interpolation of existing traces  + interpolation of missing traces )",2},
+		{"CMP gathers ( original existing traces + interpolation of missing traces )",3},
+		{"CRS gathers with CRS moveout correction",4},
+		};
+	
+	// Other parameters
+   	private PWParm _modeTag 		= new PopChooseParm(this, "OUTPUT_MODE_PARM", "CRS output mode", "Choose between different outputs", 1, new TypeDesc(_modeChoiceArray));
+
+	// CRS parameter (midpoint)
+	private PWParm _apt_inline 		= new IntParm(this, "APT_IL_PARM", "Inline Aperture", "Inline aperture for CRS interpolation", 5);
+	private PWParm _apt_xline  		= new IntParm(this, "APT_XL_PARM", "Xline Aperture", "Xline aperture for CRS interpolation", 5);
+	
+	// CRS parameter (offset)
+	//private PWParm _apt_offset_min 	= new IntParm(this, "APT_OFFSET_MIN_PARM", "Minimal offset aperture", "Minimal offset aperture for CRS interpolation", 1);
+	//private PWParm _apt_offset_max  	= new IntParm(this, "APT_OFFSET_MAX_PARM", "Maximal offset aperture", "Maximal offset aperture for CRS interpolation", 5);
+
+	private StringParm  _apt_offset_contp 	   = new StringParm(this, "_APT_OFFSET_CONTP_PARM", "offset aperture (offset number)", "Enter offset control points","1,70,71,140" );
+	private StringParm  _apt_offset_contp_max  = new StringParm(this, "_APT_OFFSET_CONTP_MAX_PARM", "offset aperture (aperture size)", "Enter offset aperture control points","5,5,5,5");
+
+
+	private final PWParm[] _menuParms;
+	public fxCRS_InterpProc() {
+	
+	    ArrayList<PWParm> contents = new ArrayList<PWParm>();
+	    
+	    // set the parameter groups
+	    addParmGroup(_offset_min, _offset_spacer_1, _offset_step, _offset_spacer_2, _offset_max);
+	    
+	    // add the sideway datasets selection
+
+	    contents.add(new LabelParm());
+	    contents.add(new LabelParm("Set geometry parameters:"));	
+	    
+	    contents.add(new LabelParm());
+	    contents.addAll(Arrays.asList(_offset_min, _offset_spacer_1, _offset_step, _offset_spacer_2, _offset_max));
+	    
+	    contents.add(new LabelParm());
+	    contents.add(new LabelParm("Set CRS interpolation parameters:"));
+	    
+	    // add the CRS parameters
+	    contents.add(new LabelParm());
+	    contents.add(_apt_inline);
+	    contents.add(_apt_xline);
+	    //contents.add(_apt_offset_min);
+	    //contents.add(_apt_offset_max);
+	    
+	    contents.add(_apt_offset_contp);
+	    contents.add(_apt_offset_contp_max);
+	   
+	    contents.add(new LabelParm());
+	    contents.add(new LabelParm("Choose CRS output:"));
+	    contents.add(new LabelParm());
+	    contents.add(_modeTag);
+	    contents.add(new LabelParm());
+	    
+	    // add the extracted 3D ZO CRS parameters
+	    contents.add(new LabelParm("Load 3D ZO CRS parameters ( Velocity, A1, A2, B11, B12 and B22 ):"));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(new LabelParm("Reference velocity"));
+	    //contents.add(_veldata_title);
+	    contents.addAll(Arrays.asList(_veldataParms.getMenuParms()));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(new LabelParm("CRS paramter: A-1"));
+	    //contents.add(_crsA1_title);
+	    contents.addAll(Arrays.asList(_crsA1Parms.getMenuParms()));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(new LabelParm("CRS paramter: A-2"));
+	    //contents.add(_crsA2_title);
+	    contents.addAll(Arrays.asList(_crsA2Parms.getMenuParms()));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(new LabelParm("CRS paramter: B-11"));
+	    //contents.add(_crsB11_title);
+	    contents.addAll(Arrays.asList(_crsB11Parms.getMenuParms()));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(new LabelParm("CRS paramter: B-12"));
+	    //contents.add(_crsB12_title);
+	    contents.addAll(Arrays.asList(_crsB12Parms.getMenuParms()));
+	    
+	    contents.add(new LabelParm());
+	    //contents.add(_crsB22_title);
+	    //contents.add(new LabelParm("CRS paramter: B-22"));
+	    contents.addAll(Arrays.asList(_crsB22Parms.getMenuParms()));
+
+	    _menuParms = contents.toArray(new PWParm[0]);
+	}
+
+  	/**
+   	* Get the menu parameters that belong to this process.
+   	*/
+  	@Override
+  	public PWParm[] getMenuParms() {
+    		return _menuParms;
+  	}
+
+  	/**
+   	* Run the rules that are specific to subclasses of PWProc.
+   	*/
+  	@Override
+  	public void runProcRules(DataContext dataContextIn) {
+		_veldataParms.runProcRules();
+		_crsA1Parms.runProcRules();
+		_crsA2Parms.runProcRules();
+		_crsB11Parms.runProcRules();
+		_crsB12Parms.runProcRules();
+		_crsB22Parms.runProcRules();
+	}
+}

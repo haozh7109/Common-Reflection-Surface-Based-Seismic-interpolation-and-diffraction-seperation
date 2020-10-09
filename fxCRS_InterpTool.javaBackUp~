@@ -1,0 +1,497 @@
+package com.lundin.prowess.tool.fxCRS_Interp;
+
+
+import org.javaseis.properties.DataDomain;
+import java.util.logging.Logger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.Arrays;
+
+import com.lgc.gpr.util.ParameterSet;
+import java.lang.Math;
+import edu.mines.jtk.dsp.*;
+import edu.mines.jtk.util.*;
+import com.lundin.tools.ParamsMethods.*;
+import edu.mines.jtk.la.DMatrix;
+import edu.mines.jtk.util.ArrayMath;
+import com.lundin.tools.Matlab;
+
+import com.lgc.prodesk.geometry.Geometry;
+import com.lgc.gpr.util.Format;
+import com.lgc.gpr.util.ParameterSet;
+import com.lgc.prodesk.hdr.HdrEntry;
+import com.lgc.prodesk.hdr.CatalogedHdrEntry;
+import com.lgc.prodesk.hdr.HdrCatalog;
+import com.lgc.prodesk.seisdata.DataContext;
+import com.lgc.prowess.exec.JobContext;
+import com.lgc.prowess.hdr.Hdr;
+import com.lgc.prowess.seisdata.SeisData;
+import com.lgc.prowess.tool.InitPhaseException;
+import com.lgc.prowess.tool.ToolContext;
+import com.lgc.prowess.tool.SimpleTool;
+
+import java.io.IOException;
+import com.lgc.prowess.tool.ExecPhaseException;
+import com.lgc.gpr.util.ParameterNotFoundException;
+import com.lgc.prowess.seisdata.SeisUtil;
+import org.javaseis.grid.BinGrid;
+import org.javaseis.grid.IGridAccessor;
+import org.javaseis.util.SeisException;
+import com.lgc.prodesk.hdr.DimensionHdr;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import com.lgc.prowess.seisdata.SeismicDataset;
+import com.lgc.prowess.tool.DatasetParms;
+import com.lgc.prowess.seisdata.SeisUtil;
+import com.lgc.prowess.seisdata.DataContextModifier;
+import com.lgc.prowess.seisdata.DataContextImpl;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import org.javaseis.properties.AxisLabel;
+
+
+public class fxCRS_InterpTool extends SimpleTool {
+
+
+  // Use a log instead of stdout and stderr
+  private static final Logger LOG = 
+  Logger.getLogger("com.lundin.prowess.tool.sagc");
+  private float _minu;
+  private float _maxu;
+  private float _maxstr;
+  private float _maxspatstr;
+  private float _maxtrace;
+  private int _mode;
+  private int _ref;
+ 
+  private CatalogedHdrEntry xlex;
+  private CatalogedHdrEntry ilex;
+  private CatalogedHdrEntry _dimensionHdrHypercube;
+  private CatalogedHdrEntry _dimensionHdrVolume;
+  private CatalogedHdrEntry _dimensionHdrFrame;
+  private CatalogedHdrEntry _dimensionHdrTrace;
+  
+  private CatalogedHdrEntry _sidewayDimensionHdrHypercube;
+  private CatalogedHdrEntry _sidewayDimensionHdrVolume;
+  private CatalogedHdrEntry _sidewayDimensionHdrFrame;
+  private CatalogedHdrEntry _sidewayDimensionHdrTrace;
+  
+  // define the necessary trace header catalog instances
+  private CatalogedHdrEntry _QC_Header;
+  
+  // define the parameters instances
+  private SeismicDataset _veldataset;
+  private SeismicDataset _crsParadataset_A1;
+  private SeismicDataset _crsParadataset_A2;
+  private SeismicDataset _crsParadataset_B11;
+  private SeismicDataset _crsParadataset_B12;
+  private SeismicDataset _crsParadataset_B22;
+
+  @Override
+  public DataContext init(JobContext jobContext, ToolContext toolContext,
+      DataContext dataContext) throws InitPhaseException {
+
+  	// Get the user parameters for this tool
+  	ParameterSet menuParms = toolContext.getMenuParms();
+
+    _mode = menuParms.getInt(fxCRS_InterpProc.MODE_PARM, 1);
+    _ref = menuParms.getInt(fxCRS_InterpProc.STK_PARM, 1);
+    _maxu = menuParms.getFloat(fxCRS_InterpProc.MAXU_PARM,50.0f);
+    _minu = menuParms.getFloat(fxCRS_InterpProc.MINU_PARM,-50.0f);
+    _maxstr = menuParms.getFloat(fxCRS_InterpProc.MAXSTR_PARM,0.2f);
+    _maxspatstr = menuParms.getFloat(fxCRS_InterpProc.MAXSPATSTR_PARM,0.1f);
+    _maxtrace = menuParms.getInt(fxCRS_InterpProc.MAXTRACE_PARM,5);
+ 
+
+    HdrCatalog hdrCatalog = dataContext.getHdrCatalog();
+   if (!hdrCatalog.entryExists("smhxline")) {
+      	throw new InitPhaseException("The input data is not supergathers!");
+    }
+
+
+    // convenience class for accessing header entries
+    xlex = hdrCatalog.getEntry("smhxline");
+    ilex = hdrCatalog.getEntry("smhiline");
+
+    // check the input data dimensions
+    String[] filePaths_vel         = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.VEL_DATASET,jobContext.getAreaLinePath());
+    String[] filePaths_crspara_A1  = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.CRS_PARAMETER_A1,jobContext.getAreaLinePath());
+    String[] filePaths_crspara_A2  = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.CRS_PARAMETER_A2,jobContext.getAreaLinePath());
+    String[] filePaths_crspara_B11 = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.CRS_PARAMETER_B11,jobContext.getAreaLinePath());
+    String[] filePaths_crspara_B12 = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.CRS_PARAMETER_B12,jobContext.getAreaLinePath());
+    String[] filePaths_crspara_B22 = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.CRS_PARAMETER_B22,jobContext.getAreaLinePath());
+    
+    String filePath_vel 	 = (filePaths_vel.length > 0) ? filePaths_vel[0] : null;
+    String filePath_crspara_A1   = (filePaths_crspara_A1.length  > 0) ? filePaths_crspara_A1[0]  : null;
+    String filePath_crspara_A2   = (filePaths_crspara_A2.length  > 0) ? filePaths_crspara_A2[0]  : null;    
+    String filePath_crspara_B11  = (filePaths_crspara_B11.length > 0) ? filePaths_crspara_B11[0] : null;
+    String filePath_crspara_B12  = (filePaths_crspara_B12.length > 0) ? filePaths_crspara_B12[0] : null;        
+    String filePath_crspara_B22  = (filePaths_crspara_B22.length > 0) ? filePaths_crspara_B22[0] : null;    
+    
+    
+    if (filePath_vel == null || filePath_crspara_A1 == null || filePath_crspara_A2 == null || filePath_crspara_B11 == null || filePath_crspara_B12 == null || filePath_crspara_B22 == null) throw new InitPhaseException("No dataset was selected");
+
+    try {
+      _veldataset         = SeisUtil.openDataset(filePath_vel);
+      _crsParadataset_A1  = SeisUtil.openDataset(filePath_crspara_A1);
+      _crsParadataset_A2  = SeisUtil.openDataset(filePath_crspara_A2);
+      _crsParadataset_B11 = SeisUtil.openDataset(filePath_crspara_B11);
+      _crsParadataset_B12 = SeisUtil.openDataset(filePath_crspara_B12);
+      _crsParadataset_B22 = SeisUtil.openDataset(filePath_crspara_B22);
+      
+      LOG.info("Dataset Descriptive Name="  + _veldataset.getDescName());
+      LOG.info("CRS Para Descriptive Name=" + _crsParadataset_A1.getDescName());
+      LOG.info("CRS Para Descriptive Name=" + _crsParadataset_A2.getDescName());
+      LOG.info("CRS Para Descriptive Name=" + _crsParadataset_B11.getDescName());
+      LOG.info("CRS Para Descriptive Name=" + _crsParadataset_B12.getDescName());      
+      LOG.info("CRS Para Descriptive Name=" + _crsParadataset_B22.getDescName());        
+      
+    } catch (IOException e) {
+      throw new InitPhaseException(e);
+    }
+
+    /* TODO: Is this check necessary?
+    SmartFramework smartFramework = _veldataset.getDataContext().getSmartFramework();
+    if (smartFramework == null)
+      throw new InitPhaseException("Dataset '" + filePath
+                                   + "' does not have a well-formed JavaSeis framework");
+    */
+
+    DimensionHdr[] inputDimensionHdrs = dataContext.getSeisGrid().getHdrs();
+
+    // ***** CODE ADDED HERE *****
+    _dimensionHdrTrace = hdrCatalog.getEntry(inputDimensionHdrs[1].getHdrEntry());
+    if (_dimensionHdrTrace == null)  // This should never happen.
+      throw new InitPhaseException("Header entry '" + inputDimensionHdrs[1].getHdrEntry()
+                                   + "' is missing from the input data");
+                                   
+                                   
+    LOG.info("------Input prestack data dimensionHdrTrace key-----------" + _dimensionHdrTrace );  
+    
+    
+    _dimensionHdrFrame = hdrCatalog.getEntry(inputDimensionHdrs[2].getHdrEntry());
+    if (_dimensionHdrFrame == null)  // This should never happen.
+      throw new InitPhaseException("Header entry '" + inputDimensionHdrs[2].getHdrEntry()
+                                   + "' is missing from the input data");
+                                   
+    LOG.info("------Input prestack data dimensionHdrFrame key-----------" + _dimensionHdrFrame );  
+
+    // Note that we have to check to see if the dataset is more than 3-dimensional.
+    if (inputDimensionHdrs.length > 3) {
+      _dimensionHdrVolume = hdrCatalog.getEntry(inputDimensionHdrs[3].getHdrEntry());
+      if (_dimensionHdrVolume == null)
+        throw new InitPhaseException("Header entry '" + inputDimensionHdrs[3].getHdrEntry()
+                                     + "' is missing from the input data");
+    } else {
+      // This is a 3-dimensional dataset.  No problem.
+      _dimensionHdrVolume = null;
+    }
+    
+    LOG.info("------Input prestack data dimensionHdrVolume key-----------" + _dimensionHdrVolume ); 
+
+    // Note that we have to check to see if the dataset is more than 4-dimensional.
+    if (inputDimensionHdrs.length > 4) {
+      _dimensionHdrHypercube = hdrCatalog.getEntry(inputDimensionHdrs[4].getHdrEntry());
+      if (_dimensionHdrHypercube == null)
+        throw new InitPhaseException("Header entry '" + inputDimensionHdrs[4].getHdrEntry()
+                                     + "' is missing from the input data");
+    } else {
+      // This is a 3-dimensional or 4-dimensional dataset.  No problem.
+      _dimensionHdrHypercube = null;
+    }
+    
+    LOG.info("------Input prestack data dimensionHdrHypercube key-----------" + _dimensionHdrHypercube ); 
+
+    // ***** CODE ADDED HERE *****
+    //==============================================================================================
+    
+    
+    // No change to the input data context.
+   return dataContext;
+  } // context
+
+
+  @Override
+  public SeisData exec(SeisData data) {
+
+    // Get the volume/frame for this ensemble.  We will assume that the first trace is
+    // representative.
+    int[] hdr0 = data.getHdr(0);
+    
+    long hypercubeKey;
+    if (_dimensionHdrHypercube == null) {
+      hypercubeKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      hypercubeKey = _dimensionHdrHypercube.getLongVal(hdr0);
+    }
+
+    long volumeKey;
+    if (_dimensionHdrVolume == null) {
+      volumeKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      volumeKey = _dimensionHdrVolume.getLongVal(hdr0);
+    }
+
+    long frameKey;
+    if (_dimensionHdrFrame == null) {
+      frameKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      frameKey = _dimensionHdrFrame.getLongVal(hdr0);
+    }  
+    
+    long traceKey;
+    if (_dimensionHdrTrace == null) {
+      traceKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      traceKey = _dimensionHdrTrace.getLongVal(hdr0);
+    }    
+
+    LOG.info("Input prestack data hypercubeKey key " + hypercubeKey);     
+    LOG.info("Input prestack data volume key ="  + volumeKey); 
+    LOG.info("Input prestack data frameKey key=" + frameKey); 
+    LOG.info("Input prestack data traceKey key=" + traceKey); 
+    
+    // define variables to hold input CRS parameters 
+    SeisData sidewaysVelData     = null;
+    SeisData sidewaysCRSData_A1  = null;
+    SeisData sidewaysCRSData_A2  = null;
+    SeisData sidewaysCRSData_B11 = null;
+    SeisData sidewaysCRSData_B12 = null;
+    SeisData sidewaysCRSData_B22 = null;
+    
+    // get the indices of inline and xline for the velocity and CRS parameters, 
+    // be aware of the main data are prestack data (4D) and velocity & CRS parameters are poststack volumes(3D) 
+    long hypercubeKey_poststak 	= 0;
+    long volumeKey_poststak 	= 0;
+    long frameKey_poststak  	= volumeKey;   //inline index
+    
+    // read the sideway datas and output the frame objects 
+    try {
+      // only read selected frame, the whole inline
+      sidewaysVelData     = _veldataset.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak); 
+      sidewaysCRSData_A1  = _crsParadataset_A1.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak); 
+      sidewaysCRSData_A2  = _crsParadataset_A2.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak); 
+      sidewaysCRSData_B11 = _crsParadataset_B11.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak); 
+      sidewaysCRSData_B12 = _crsParadataset_B12.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak); 
+      sidewaysCRSData_B22 = _crsParadataset_B22.readFrame(hypercubeKey_poststak, volumeKey_poststak , frameKey_poststak);
+      
+    } catch (IOException e) {
+      LOG.warning("Error reading hypercube=" + hypercubeKey + " volume=" + volumeKey
+                  + " frame=" + frameKey
+                  + " in the sideways dataset");
+                  
+      sidewaysVelData = null;  // For clarity.
+    }
+
+
+    if (sidewaysVelData == null || sidewaysCRSData_A1 == null || sidewaysCRSData_A2 == null || sidewaysCRSData_B11 == null || sidewaysCRSData_B12 == null || sidewaysCRSData_B22 == null ) {
+      // Usually that just means that this data is not present.
+      
+      LOG.info("================ Job debugging flag, one of parameters are not presented ================================");
+      
+      if (LOG.isLoggable(Level.FINE)) {
+        LOG.fine("Unable to read hypercube=" + hypercubeKey + " volume=" + volumeKey
+                 + " frame=" + frameKey
+                 + " in the sideways dataset");
+      }
+
+    } else {
+      // We have both data and sidewaydaa, proceed to process now.
+      
+      // ***** CODE ADDED HERE *****
+
+      	// ------ get the prestack CRS gathers and velocity/parameter files  ------
+      	float[][] data2d 	= data.getTraces();
+      	float[][] vels2d 	= sidewaysVelData.getTraces();
+      	float[][] CRS_para_A1 	= sidewaysCRSData_A1.getTraces();
+      	float[][] CRS_para_A2 	= sidewaysCRSData_A2.getTraces();
+      	float[][] CRS_para_B11 	= sidewaysCRSData_B11.getTraces();
+      	float[][] CRS_para_B12 	= sidewaysCRSData_B12.getTraces();
+      	float[][] CRS_para_B22 	= sidewaysCRSData_B22.getTraces();
+    
+    	// get the seismic data dimensions (be aware that the data in promax is transposed)
+        int ntr_gth 		= data2d.length;    // get the number of rows
+        int ntimes_gth		= data2d[0].length; // get the number of coloumn
+        
+        // get the dimension of parameter files (be aware that the data in promax is transposed)
+        int ncmps_para 		= vels2d.length;    
+        int ntimes_para 	= vels2d[0].length; 
+        
+        // get the trace header of seismic data
+        int[][] header_gth	= data.getHdrs();
+        
+	// define the survey geometry/grid ( ## these hardcoded paramters need to be set from the module interface, which need to be updated later ## ) 
+        double ref_point_x0       = 517202.4;
+	double ref_point_y0       = 7985333.76;
+	int    ref_point_inline	  = 3020;
+	int    ref_point_xline    = 414;
+	double rotation_angle     = 145.7139;
+	double inline_step        = 8.3333;
+	double xline_step         = 6.25;
+        
+        // add the header entry 
+    	_QC_Header = data.getHdrCatalog().getEntry(HdrEntry.OFB_NO);
+	
+	// extract trace headers from the data 
+	//int[] hdr_test 			= new int[ntr_gth];
+	int[] 	 _Inline		= new int[ntr_gth];
+	int[] 	 _Xline			= new int[ntr_gth];
+	double[] _offsets 		= new double[ntr_gth]; 
+	int[]    _offsets_bin		= new int[ntr_gth];
+	double[] _SourceX		= new double[ntr_gth];
+	double[] _SourceY		= new double[ntr_gth];
+	double[] _GroupX		= new double[ntr_gth];
+	double[] _GroupY		= new double[ntr_gth];
+	double[] _MidPointX		= new double[ntr_gth];
+	double[] _MidPointY		= new double[ntr_gth];	
+	double[] _MidPointX_local	= new double[ntr_gth];
+	double[] _MidPointY_local	= new double[ntr_gth];
+	double[] _CDPX			= new double[ntr_gth];
+	double[] _CDPY			= new double[ntr_gth];
+	double[] _CDPX_local		= new double[ntr_gth];
+	double[] _CDPY_local		= new double[ntr_gth];
+
+	// extract the CRS needed trace header from the dinput prestack data	
+     	for (int iTr = 0; iTr < ntr_gth; iTr++){ 
+		//hdr_test[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.OFB_NO).getIntVal(header_gth[iTr]);
+
+		_Inline[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.ILINE_NO).getIntVal(header_gth[iTr]);
+		_Xline[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.XLINE_NO).getIntVal(header_gth[iTr]);	
+		_offsets[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.OFFSET).getDoubleVal(header_gth[iTr]);
+		_offsets_bin[iTr] 		=  data.getHdrCatalog().getEntry(HdrEntry.DISKITER).getIntVal(header_gth[iTr]);  // The header DISKITER is used for temporarily store the offset number
+		_SourceX[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.SOU_XD).getDoubleVal(header_gth[iTr]);
+		_SourceY[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.SOU_YD).getDoubleVal(header_gth[iTr]);
+		_GroupX[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.REC_XD).getDoubleVal(header_gth[iTr]);
+		_GroupY[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.REC_YD).getDoubleVal(header_gth[iTr]);
+		_MidPointX[iTr] 		=  0.5 * ( _SourceX[iTr] + _GroupX[iTr]);
+		_MidPointY[iTr] 		=  0.5 * ( _SourceY[iTr] + _GroupY[iTr]);
+		_CDPX[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.CDP_XD).getDoubleVal(header_gth[iTr]);
+		_CDPY[iTr] 			=  data.getHdrCatalog().getEntry(HdrEntry.CDP_YD).getDoubleVal(header_gth[iTr]);
+		
+		// derive the local coordinates 
+		double[][] _cdp_local 		=  GeometryTransform(_CDPX[iTr], _CDPY[iTr], ref_point_x0, ref_point_y0, ref_point_inline, ref_point_xline, rotation_angle, inline_step, xline_step);
+		double[][] _MidPoint_local 	=  GeometryTransform(_MidPointX[iTr], _MidPointY[iTr], ref_point_x0, ref_point_y0, ref_point_inline, ref_point_xline, rotation_angle, inline_step, xline_step);
+		_CDPX_local[iTr] 		=  _cdp_local[0][0];
+		_CDPY_local[iTr] 		=  _cdp_local[1][0]; 
+		_MidPointX_local[iTr] 		=  _MidPoint_local[0][0];
+		_MidPointY_local[iTr] 		=  _MidPoint_local[1][0]; 			
+
+      	}
+      	
+      	
+		 
+	 
+
+	// ***** DISPLAY THE CHECKED VARIABLES IN LOG *****
+      	LOG.info("================ START DISPLAY THE CHECKED VARIABLES IN LOG FILE ================================");
+      	LOG.info("Found the dimension of input CRS sup-gather ensemble (traces x times):" + ntr_gth + "*" + ntimes_gth + " in the job");
+      	LOG.info("Found the dimension of input parameter files (traces x times):" + ncmps_para + "*" + ntimes_para + " in the job");
+      	LOG.info("Found the dimension of trace header of prestack data (traces x times):" + header_gth.length + "*" + header_gth[0].length + " in the job");
+      	//LOG.info("Found the querying trace header:" +  _QC_Header + " with value range:" + _QC_Header.getFloatVal(header_gth[0]) + " : " + _QC_Header.getFloatVal(header_gth[ntr_gth-1])  + " in the job ");
+      	//LOG.info("Found the querying trace header:" +  _QC_Header + " with value range:" + hdr_test[0] + " : " + hdr_test[ntr_gth-1]  + " in the job ");
+      	
+      	LOG.info("Found the querying trace header OFFSET:  with value range:"     + _offsets[0] + " : " + _offsets[ntr_gth-1]  + " in the job ");
+      	LOG.info("Found the querying trace header OFFSET_BIN:  with value range:" + _offsets_bin[0] + " : " + _offsets_bin[ntr_gth-1]  + " in the job ");
+      	LOG.info("Found the querying trace header Source-X:  with value range:"   + _SourceX[0] + " : " + _SourceX[ntr_gth-1]  + " in the job ");
+      	LOG.info("Found the querying trace header Source-Y:  with value range:"   + _SourceY[0] + " : " + _SourceY[ntr_gth-1]  + " in the job ");
+      	LOG.info("Found the querying trace header Receiver-X:  with value range:" + _GroupX[0]  + " : " + _GroupX[ntr_gth-1]   + " in the job ");
+      	LOG.info("Found the querying trace header Receiver-Y:  with value range:" + _GroupY[0]  + " : " + _GroupY[ntr_gth-1]   + " in the job ");
+      	LOG.info("Found the querying trace header CDP-X:  with value range:"      + _CDPX[0]    + " : " + _CDPX[ntr_gth-1]   + " in the job ");
+      	LOG.info("Found the querying trace header CDP-Y:  with value range:"      + _CDPY[0]    + " : " + _CDPY[ntr_gth-1]   + " in the job ");
+      	LOG.info("Found the querying trace header inline:  with value range:"     + _Inline[0]  + " : " + _Inline[ntr_gth-1]   + " in the job ");
+      	LOG.info("Found the querying trace header xline:  with value range:"      + _Xline[0]   + " : " + _Xline[ntr_gth-1]   + " in the job ");
+        
+        LOG.info("================ QC CHECKED Trace Header ================================");
+        int qc_trace_n = 100;
+        LOG.info("Found the querying trace header Trcace index Number:  with value range:" + qc_trace_n			);
+        LOG.info("QC the trace header nth:" + qc_trace_n + " from the total trace header: " + 	_MidPointX.length	);
+        
+        LOG.info("Found the querying trace header inline:      with value :"      + _Inline[qc_trace_n]  	   	);
+      	LOG.info("Found the querying trace header xline:       with value :"      + _Xline[qc_trace_n]   	   	);
+      	LOG.info("Found the querying trace header OFFSET:      with value :"      + _offsets[qc_trace_n] 	   	);
+      	LOG.info("Found the querying trace header OFFSET_BIN:  with value :"      + _offsets_bin[qc_trace_n] 		);
+      	LOG.info("Found the querying trace header Source-X:    with value :"      + _SourceX[qc_trace_n] 	   	);
+      	LOG.info("Found the querying trace header Source-Y:    with value :"      + _SourceY[qc_trace_n] 	   	);
+      	LOG.info("Found the querying trace header Receiver-X:  with value :"      + _GroupX[qc_trace_n]      		);
+      	LOG.info("Found the querying trace header Receiver-Y:  with value :"      + _GroupY[qc_trace_n]  	   	);
+      	LOG.info("Found the querying trace header CMP-X:       with value :"      + _MidPointX[qc_trace_n]   		);
+      	LOG.info("Found the querying trace header CMP-Y:       with value :"      + _MidPointY[qc_trace_n]   		);      	
+      	LOG.info("Found the querying trace header CDP-X:       with value :"      + _CDPX[qc_trace_n]    	   	);
+      	LOG.info("Found the querying trace header CDP-Y:       with value :"      + _CDPY[qc_trace_n]    	   	);
+      	LOG.info("Found the querying trace header CMP-X_local: with value :"      + _MidPointX_local[qc_trace_n]   	);
+      	LOG.info("Found the querying trace header CMP-Y_local: with value :"      + _MidPointY_local[qc_trace_n]   	);      	
+      	LOG.info("Found the querying trace header CDP-X_local: with value :"      + _CDPX_local[qc_trace_n]   	 	);
+      	LOG.info("Found the querying trace header CDP-Y_local: with value :"      + _CDPY_local[qc_trace_n]    		);
+
+      	LOG.info("================ COMPLETE DISPLAY THE CHECKED VARIABLES IN LOG FILE =============================");
+	
+	// free the sideway data from memory
+      	sidewaysVelData.free();
+      	sidewaysCRSData_A1.free();
+      	sidewaysCRSData_A2.free();
+      	sidewaysCRSData_B11.free();
+      	sidewaysCRSData_B12.free();
+      	sidewaysCRSData_B22.free();
+            
+    }
+
+    return data;       
+  }
+  
+  
+  /**
+	Method for coordination transformation of acquisition coordinates to local (processing) coordinates
+  */
+
+  private double[][] GeometryTransform(double x, double y, double ref_point_x0, double ref_point_y0, int ref_point_inline, int ref_point_xline, double rotation_angle, double inline_step, double xline_step){
+  
+  
+        // convert the degree to radiant angle
+        double theta = rotation_angle * Math.PI / 180.0 ;
+        
+        // get the input coordinates array
+        double[][] coord_input 	= {{x - ref_point_x0 , 0},{y - ref_point_y0, 0}};
+        
+        // derive the transformation matrix
+	double[][] Trans_mat 	= { {Math.cos(theta), Math.sin(theta)}, {-Math.sin(theta), Math.cos(theta)}};
+	
+	//transorm the original acquisition coordination system to processing coordinate system
+	DMatrix Trans_mat_DM 	= new DMatrix(Trans_mat);  
+	DMatrix coord_input_DM 	= new DMatrix(coord_input );
+	DMatrix coord_output_DM	= Trans_mat_DM.times(coord_input_DM);
+	double[][] coord_output = coord_output_DM.get();
+	  
+	//derive the inline and xline number in the processing coordinate system (Only use for the QC purpose)
+	int inline_qc   = (int)Math.round(coord_output[1][0]/inline_step) + ref_point_inline;
+	int xline_qc	= (int)Math.round(coord_output[0][0]/xline_step)  + ref_point_xline;
+	
+	
+	// qc the result if needed
+	int qc_flag = 1; // use the flag in the implementation stage
+	
+	if (qc_flag == 1){	
+		LOG.info("Debugging Coord_input :"       + "{"  + coord_input[0][0]  + " and " + coord_input[0][1]    + "}" + "{"  + coord_input[1][0]   + " and " + coord_input[1][1]  + "}");
+		LOG.info("Debugging Trans_max   :"       + "{"  + Trans_mat[0][0]    + " and " + Trans_mat[0][1]      + "}" + "{"  + Trans_mat[1][0]     + " and " + Trans_mat[1][1]    + "}");
+		LOG.info("Debugging coord_output:"       + "{"  + coord_output[0][0] + " and " + coord_output[0][1]   + "}" + "{"  + coord_output[1][0]  + " and " + coord_output[1][1] + "}");
+		LOG.info("Debugging inline_qc :"         +  inline_qc);
+		LOG.info("Debugging xline_qc :"          +  xline_qc);
+	
+		LOG.info("Debugging Coord_input dimension:"      + coord_input.length + " X " + coord_input[0].length);
+		LOG.info("Debugging Trans_max dimension:"        + Trans_mat.length +   " X " + Trans_mat[0].length);
+	}
+	
+	//output the results
+	return coord_output;
+  }
+  
+
+  // Any action which must be taken for cleanup of resources should be
+  // put in this method.
+  @Override
+  public void completeNormally() {
+  }
+  // Any action which must be taken if the tool is told to abort
+  // execution should be put in this method.
+  @Override
+  public void abort() {
+  }
+
+} // tool

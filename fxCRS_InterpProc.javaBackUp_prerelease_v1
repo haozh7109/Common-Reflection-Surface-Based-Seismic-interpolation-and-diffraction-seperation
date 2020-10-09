@@ -1,0 +1,157 @@
+package com.lundin.prowess.tool.fxCRS_Interp;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+
+import com.lgc.prodesk.flowbuilder.pui.pw.PWParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.PWProc;
+import com.lgc.prodesk.seisdata.DataContext;
+import com.lgc.prodesk.tbl.TableType;
+import com.lgc.prowess.tool.TableParms;
+import com.lgc.prodesk.flowbuilder.pui.pw.IntParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.FloatParm;
+import com.lgc.prodesk.flowbuilder.pui.TypeDesc;
+import com.lgc.prodesk.flowbuilder.pui.pw.PopChooseParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.ChooseParm;
+import com.lgc.prodesk.flowbuilder.pui.pw.LabelParm;
+import com.lgc.prowess.tool.DatasetParms;
+import com.lgc.prodesk.flowbuilder.pui.Proc;
+/**
+ * Example5Nmo Process menu
+ */
+public class fxCRS_InterpProc extends PWProc {
+
+
+	//Parameter: dataset
+	static final String VEL_DATASET = "VELOCITY_DATASET";
+	private DatasetParms _veldataParms    = new DatasetParms(this, VEL_DATASET);
+	
+	static final String CRS_PARAMETER_A1  = "CRS_PARAMETER_A1";
+	private DatasetParms _crsA1Parms  = new DatasetParms(this, CRS_PARAMETER_A1);
+	
+	static final String CRS_PARAMETER_A2  = "CRS_PARAMETER_A2";
+	private DatasetParms _crsA2Parms  = new DatasetParms(this, CRS_PARAMETER_A2);
+	
+	static final String CRS_PARAMETER_B11 = "CRS_PARAMETER_B11";
+	private DatasetParms _crsB11Parms = new DatasetParms(this, CRS_PARAMETER_B11);
+	
+	static final String CRS_PARAMETER_B12 = "CRS_PARAMETER_B12";
+	private DatasetParms _crsB12Parms = new DatasetParms(this, CRS_PARAMETER_B12);
+
+	static final String CRS_PARAMETER_B22 = "CRS_PARAMETER_B22";
+	private DatasetParms _crsB22Parms = new DatasetParms(this, CRS_PARAMETER_B22);	
+	
+	
+        static final int MODE_REF = 1;
+        static final int MODE_DYN = 2;
+        static final String STK_PARM = "stkChoice";
+        private static Object[][] _stkChoice =
+		{
+		{"REFSTACK", new Integer(MODE_REF), "---"},
+		{"DYNAMIC", new Integer(MODE_DYN), "---"}
+		};
+// Other parameters
+   private PWParm _stkTag =
+			new PopChooseParm(this, STK_PARM,
+					"Reference mode",
+					"Reference stack, or dynamic shifting",
+					new Integer(MODE_REF), new TypeDesc(_stkChoice));
+
+        static final int MODE_CORRECT = 1;
+        static final int MODE_SHIFTS  = 2;
+        static final int OUTPUT_APPLY = 3;
+        static final String MODE_PARM = "modeChoice";
+        private static Object[][] _modeChoice =
+		{
+		{"CORRECT", new Integer(MODE_CORRECT), "---"},
+		{"SHIFTS", new Integer(MODE_SHIFTS), "---"},
+		{"APPLY SHIFTS", new Integer(OUTPUT_APPLY), "---"}
+		};
+// Other parameters
+   private PWParm _modeTag =
+			new PopChooseParm(this, MODE_PARM,
+					"Output mode",
+					"Choose between different outputs",
+					new Integer(MODE_CORRECT), new TypeDesc(_modeChoice));
+
+//Parameter: dataset
+//  static final String GTH_DATASET = "GTH_DATASET";
+//  private DatasetParms _datasetParms = new DatasetParms(this, GTH_DATASET);
+
+
+ 	static final String MINU_PARM = "min shift";
+ 	static final String MAXU_PARM = "max shift";
+ 	static final String MAXSTR_PARM = "max strain";
+ 	static final String MAXSPATSTR_PARM = "max spatial strain";
+ 	static final String MAXTRACE_PARM = "max trace";
+        private PWParm _minu = new FloatParm(this, MINU_PARM, "Min shift", "Min shift", -50.0);
+        private PWParm _maxu = new FloatParm(this, MAXU_PARM, "Max shift", "Max shift", 50.0);
+        private PWParm _maxstr = new FloatParm(this, MAXSTR_PARM, "Max strain", "Max strain", 0.2);
+        private PWParm _maxspatstr = new FloatParm(this, MAXSPATSTR_PARM, "Max spatial strain", "Max spatial strain", 0.1);
+	private PWParm _maxtrace = new IntParm(this, MAXTRACE_PARM, "Max trace for reference stack", "Max trace for reference stack", 5);
+
+  
+
+  private final PWParm[] _menuParms;
+
+  public fxCRS_InterpProc() {
+    ArrayList<PWParm> contents = new ArrayList<PWParm>();
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load reference velocity"));
+    contents.addAll(Arrays.asList(_veldataParms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load CRS paramter: A-1"));
+    contents.addAll(Arrays.asList(_crsA1Parms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load CRS paramter: A-2"));
+    contents.addAll(Arrays.asList(_crsA2Parms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load CRS paramter: B-11"));
+    contents.addAll(Arrays.asList(_crsB11Parms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load CRS paramter: B-12"));
+    contents.addAll(Arrays.asList(_crsB12Parms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Load CRS paramter: B-22"));
+    contents.addAll(Arrays.asList(_crsB22Parms.getMenuParms()));
+    
+    contents.add(new LabelParm());
+    contents.add(new LabelParm("Set interpolation parameters:"));
+    contents.add(_stkTag);
+    contents.add(_modeTag);
+    contents.add(_minu);
+    contents.add(_maxu);
+    contents.add(_maxstr);
+    contents.add(_maxspatstr);
+    contents.add(_maxtrace);
+
+    _menuParms = contents.toArray(new PWParm[0]);
+  }
+
+  /**
+   * Get the menu parameters that belong to this process.
+   */
+  @Override
+  public PWParm[] getMenuParms() {
+    return _menuParms;
+  }
+
+  /**
+   * Run the rules that are specific to subclasses of PWProc.
+   */
+  @Override
+  public void runProcRules(DataContext dataContextIn) {
+	_veldataParms.runProcRules();
+	_crsA1Parms.runProcRules();
+	_crsA2Parms.runProcRules();
+	_crsB11Parms.runProcRules();
+	_crsB12Parms.runProcRules();
+	_crsB22Parms.runProcRules();
+  }
+}

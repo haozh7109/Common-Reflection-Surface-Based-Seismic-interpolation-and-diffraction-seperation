@@ -1,0 +1,243 @@
+package com.lundin.prowess.tool.fxCRS_Interp;
+
+
+import org.javaseis.properties.DataDomain;
+
+import java.util.logging.Logger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.Arrays;
+
+import com.lgc.gpr.util.ParameterSet;
+import java.lang.Math;
+import edu.mines.jtk.dsp.*;
+import edu.mines.jtk.util.*;
+import com.lundin.tools.ParamsMethods.*;
+import com.lgc.prodesk.geometry.Geometry;
+import com.lgc.gpr.util.Format;
+import com.lgc.gpr.util.ParameterSet;
+import com.lgc.prodesk.hdr.CatalogedHdrEntry;
+import com.lgc.prodesk.hdr.HdrCatalog;
+import com.lgc.prodesk.hdr.HdrEntry;
+import com.lgc.prodesk.seisdata.DataContext;
+import com.lgc.prowess.exec.JobContext;
+import com.lgc.prowess.hdr.Hdr;
+import com.lgc.prowess.seisdata.SeisData;
+import com.lgc.prowess.tool.InitPhaseException;
+import com.lgc.prowess.tool.ToolContext;
+import com.lgc.prowess.tool.SimpleTool;
+import java.io.IOException;
+import com.lgc.prowess.tool.ExecPhaseException;
+import com.lgc.gpr.util.ParameterNotFoundException;
+import com.lgc.prowess.seisdata.SeisUtil;
+import org.javaseis.grid.BinGrid;
+import org.javaseis.grid.IGridAccessor;
+import org.javaseis.util.SeisException;
+import com.lgc.prodesk.hdr.DimensionHdr;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import com.lgc.prowess.seisdata.SeismicDataset;
+import com.lgc.prowess.tool.DatasetParms;
+import com.lgc.prowess.seisdata.SeisUtil;
+import com.lgc.prowess.seisdata.DataContextModifier;
+import com.lgc.prowess.seisdata.DataContextImpl;
+import com.lgc.prowess.javaseis.smart.SmartFramework;
+import org.javaseis.properties.AxisLabel;
+
+
+
+public class fxCRS_InterpTool extends SimpleTool {
+
+
+  // Use a log instead of stdout and stderr
+  private static final Logger LOG = 
+  Logger.getLogger("com.lundin.prowess.tool.sagc");
+  private float _minu;
+  private float _maxu;
+  private float _maxstr;
+  private float _maxspatstr;
+  private float _maxtrace;
+  private int _mode;
+  private int _ref;
+  private SeismicDataset _dataset;
+  private CatalogedHdrEntry xlex;
+  private CatalogedHdrEntry ilex;
+  private CatalogedHdrEntry _dimensionHdrHypercube;
+  private CatalogedHdrEntry _dimensionHdrVolume;
+  private CatalogedHdrEntry _dimensionHdrFrame;
+  private CatalogedHdrEntry _dimensionHdrTrace;
+  private CatalogedHdrEntry _sidewaysDimensionHdrTrace;
+
+
+  @Override
+  public DataContext init(JobContext jobContext, ToolContext toolContext,
+      DataContext dataContext) throws InitPhaseException {
+
+  	// Get the user parameters for this tool
+  	ParameterSet menuParms = toolContext.getMenuParms();
+
+    _mode = menuParms.getInt(fxCRS_InterpProc.MODE_PARM, 1);
+    _ref = menuParms.getInt(fxCRS_InterpProc.STK_PARM, 1);
+    _maxu = menuParms.getFloat(fxCRS_InterpProc.MAXU_PARM,50.0f);
+    _minu = menuParms.getFloat(fxCRS_InterpProc.MINU_PARM,-50.0f);
+    _maxstr = menuParms.getFloat(fxCRS_InterpProc.MAXSTR_PARM,0.2f);
+    _maxspatstr = menuParms.getFloat(fxCRS_InterpProc.MAXSPATSTR_PARM,0.1f);
+    _maxtrace = menuParms.getInt(fxCRS_InterpProc.MAXTRACE_PARM,5);
+ 
+
+    HdrCatalog hdrCatalog = dataContext.getHdrCatalog();
+   if (!hdrCatalog.entryExists("smhxline")) {
+      	throw new InitPhaseException("The input data is not supergathers!");
+    }
+
+
+    // convenience class for accessing header entries
+    xlex = hdrCatalog.getEntry("smhxline");
+    ilex = hdrCatalog.getEntry("smhiline");
+
+    // check the input data dimensions
+    String[] filePaths = DatasetParms.getFilePaths(menuParms, fxCRS_InterpProc.DATASET,jobContext.getAreaLinePath());
+
+    String filePath = (filePaths.length > 0) ? filePaths[0] : null;
+    if (filePath == null) throw new InitPhaseException("No dataset was selected");
+
+    try {
+      _dataset = SeisUtil.openDataset(filePath);
+      LOG.info("Dataset Descriptive Name=" + _dataset.getDescName());
+    } catch (IOException e) {
+      throw new InitPhaseException(e);
+    }
+
+    /* TODO: Is this check necessary?
+    SmartFramework smartFramework = _dataset.getDataContext().getSmartFramework();
+    if (smartFramework == null)
+      throw new InitPhaseException("Dataset '" + filePath
+                                   + "' does not have a well-formed JavaSeis framework");
+    */
+
+    DimensionHdr[] inputDimensionHdrs = dataContext.getSeisGrid().getHdrs();
+
+    // ***** CODE ADDED HERE *****
+    _dimensionHdrTrace = hdrCatalog.getEntry(inputDimensionHdrs[1].getHdrEntry());
+    if (_dimensionHdrTrace == null)  // This should never happen.
+      throw new InitPhaseException("Header entry '" + inputDimensionHdrs[1].getHdrEntry()
+                                   + "' is missing from the input data");
+
+    _dimensionHdrFrame = hdrCatalog.getEntry(inputDimensionHdrs[2].getHdrEntry());
+    if (_dimensionHdrFrame == null)  // This should never happen.
+      throw new InitPhaseException("Header entry '" + inputDimensionHdrs[2].getHdrEntry()
+                                   + "' is missing from the input data");
+
+    // Note that we have to check to see if the dataset is more than 3-dimensional.
+    if (inputDimensionHdrs.length > 3) {
+      _dimensionHdrVolume = hdrCatalog.getEntry(inputDimensionHdrs[3].getHdrEntry());
+      if (_dimensionHdrVolume == null)
+        throw new InitPhaseException("Header entry '" + inputDimensionHdrs[3].getHdrEntry()
+                                     + "' is missing from the input data");
+    } else {
+      // This is a 3-dimensional dataset.  No problem.
+      _dimensionHdrVolume = null;
+    }
+
+    // Note that we have to check to see if the dataset is more than 4-dimensional.
+    if (inputDimensionHdrs.length > 4) {
+      _dimensionHdrHypercube = hdrCatalog.getEntry(inputDimensionHdrs[4].getHdrEntry());
+      if (_dimensionHdrHypercube == null)
+        throw new InitPhaseException("Header entry '" + inputDimensionHdrs[4].getHdrEntry()
+                                     + "' is missing from the input data");
+    } else {
+      // This is a 3-dimensional or 4-dimensional dataset.  No problem.
+      _dimensionHdrHypercube = null;
+    }
+
+    // ***** CODE ADDED HERE *****
+    try {
+      HdrCatalog sidewaysHdrCatalog = _dataset.getDataContext().getHdrCatalog();
+      _sidewaysDimensionHdrTrace = sidewaysHdrCatalog.getEntry(inputDimensionHdrs[1].getHdrEntry());
+      if (_sidewaysDimensionHdrTrace == null)
+        throw new InitPhaseException("Header entry '" + inputDimensionHdrs[1].getHdrEntry()
+                                     + "' is missing from the 'sideways' data");
+    } catch (IOException e) {
+      e.printStackTrace();
+      throw new InitPhaseException(e);
+    }
+
+    // No change to the input data context.
+   return dataContext;
+  } // context
+
+
+  @Override
+  public SeisData exec(SeisData data) {
+
+    // Get the volume/frame for this ensemble.  We will assume that the first trace is
+    // representative.
+    int[] hdr0 = data.getHdr(0);
+
+    long volumeKey;
+    if (_dimensionHdrVolume == null) {
+      volumeKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      volumeKey = _dimensionHdrVolume.getLongVal(hdr0);
+    }
+
+    long hypercubeKey;
+    if (_dimensionHdrHypercube == null) {
+      hypercubeKey = SmartFramework.IMPLIED_LOGICAL_VALUE;
+    } else {
+      hypercubeKey = _dimensionHdrHypercube.getLongVal(hdr0);
+    }
+
+    long frameKey = _dimensionHdrFrame.getLongVal(hdr0);
+
+    SeisData sidewaysData = null;
+    try {
+      sidewaysData = _dataset.readFrame(hypercubeKey, volumeKey, frameKey);
+    } catch (IOException e) {
+      LOG.warning("Error reading hypercube=" + hypercubeKey + " volume=" + volumeKey
+                  + " frame=" + frameKey
+                  + " in the sideways dataset");
+      sidewaysData = null;  // For clarity.
+    }
+
+    if (sidewaysData == null) {
+      // Usually that just means that this data is not present.
+      if (LOG.isLoggable(Level.FINE)) {
+        LOG.fine("Unable to read hypercube=" + hypercubeKey + " volume=" + volumeKey
+                 + " frame=" + frameKey
+                 + " in the sideways dataset");
+      }
+
+    } else {
+      // We have both data and sidewaysdata, proceed to process now.
+      
+      // ***** CODE ADDED HERE *****
+
+
+    // The SeisData object contains information about its state,
+    // such as the number of traces and the number of samples in
+    // a trace.
+	int ntr = data.countTraces();
+        int ntimes = data.getTraceLen();
+        int[] hdr = data.getHdr(0);
+        /// Insert code here
+
+
+      sidewaysData.free();
+    }
+
+    return data;       
+  }
+
+
+  // Any action which must be taken for cleanup of resources should be
+  // put in this method.
+  @Override
+  public void completeNormally() {
+  }
+  // Any action which must be taken if the tool is told to abort
+  // execution should be put in this method.
+  @Override
+  public void abort() {
+  }
+
+} // tool
